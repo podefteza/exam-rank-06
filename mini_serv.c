@@ -12,7 +12,7 @@ int		next_client = 0; // next client id counter
 int		listen_fd = -1; // server listening socket fd
 int		client_ids[65536]; // (256^2, can be any large number...) // maps socket fd -> client id
 char	*buffer[65536]; // (256^2) // maps socket fd -> client message buffer
-fd_set	rfds, wfds, afds; // read fds, write fds, and active master fds set
+fd_set	read_fds, write_fds, active_fds; // read fds, write fds, and active master fds set
 
 // GIVEN WITH THE SUBJECT
 int extract_message(char **buf, char **msg)
@@ -71,7 +71,7 @@ void	fatal(void) {
 // sends message to all connected clients except the sender, the listening socket and ensures we can write on the recipients
 void	broadcast(int sender, char *msg) {
 	for (int fd = 0; fd <= max_fd; fd++)
-		if (fd != sender && fd != listen_fd && FD_ISSET(fd, &wfds))
+		if (fd != sender && fd != listen_fd && FD_ISSET(fd, &write_fds))
 			send(fd, msg, strlen(msg), 0);
 }
 
@@ -79,14 +79,14 @@ void	add_client(int sockfd) {
 	int	new_fd;
 	char	msg[64];
 
-	new_fd = accept(sockfd, NULL, NULL); // accepts incoming connections
+	new_fd = accept(sockfd, NULL, NULL); // accepts incoming connections, creates and returns the new FD
 	if (new_fd < 0)
 		return ;
 	if (new_fd > max_fd) // update the max_fd for new clients
 		max_fd = new_fd;
 	client_ids[new_fd] = next_client++; // assigns ID to the new client
 	buffer[new_fd] = NULL; // initialize client's message
-	FD_SET(new_fd, &afds); // adds client to the active fd's set so select() monitors it
+	FD_SET(new_fd, &active_fds); // adds client to the active fd's set so select() monitors it
 	sprintf(msg, "server: client %d just arrived\n", client_ids[new_fd]); // formats "msg" to transmit
 	broadcast(new_fd, msg); // send notification to all connected clients
 }
@@ -96,7 +96,7 @@ void	remove_client(int fd) {
 
 	sprintf(msg, "server: client %d just left\n", client_ids[fd]); // format message
 	broadcast(fd, msg); // broadcast to all remaining clients
-	FD_CLR(fd, &afds); // remove fd from the active set so select() stops monitoring it
+	FD_CLR(fd, &active_fds); // remove fd from the active set so select() stops monitoring it
 	free(buffer[fd]);
 	buffer[fd] = NULL;
 	close(fd); // frees and closes to avoid leaks
@@ -162,17 +162,17 @@ int main(int argc, char **argv) { // MODIFIED: added argc & argv parameters
 		fatal(); // MODIFIED: exit with status 1 and "Fatal error\n" on failure instead of using printf and exit(0)
 	}
 
-	FD_ZERO(&afds); // NEW: clear master file descriptor set
-	FD_SET(sockfd, &afds); // NEW: add listening socket to master fd set
+	FD_ZERO(&active_fds); // NEW: clear master file descriptor set
+	FD_SET(sockfd, &active_fds); // NEW: add listening socket to master fd set
 	max_fd = sockfd; // NEW: set initial highest fd to listening socket
 
 	while (1) { // NEW: multi-client non-blocking event loop replacing single accept
-		rfds = wfds = afds; // NEW: copy master fd set to read and write sets for select()
-		if (select(max_fd + 1, &rfds, &wfds, NULL, NULL) < 0) // NEW: block until an fd is ready
+		read_fds = write_fds = active_fds; // NEW: copy master fd set to read and write sets for select()
+		if (select(max_fd + 1, &read_fds, &write_fds, NULL, NULL) < 0) // NEW: block until an fd is ready
 			continue; // NEW: restart loop if select was interrupted
 
 		for (int fd = 0; fd <= max_fd; fd++) { // NEW: check all file descriptors up to max_fd
-			if (!FD_ISSET(fd, &rfds)) // NEW: skip fds not ready for reading
+			if (!FD_ISSET(fd, &read_fds)) // NEW: skip fds not ready for reading
 				continue; // NEW: skip to next fd
 			if (fd == sockfd) // NEW: if listening socket is ready for reading
 				add_client(sockfd); // NEW: accept new incoming client connection
