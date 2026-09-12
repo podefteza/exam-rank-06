@@ -145,8 +145,6 @@ int main(int argc, char **argv) { // MODIFIED: added argc & argv parameters
 	if (sockfd == -1) {
 		fatal(); // MODIFIED: exit with status 1 and "Fatal error\n" on failure instead of using printf and exit(0)
 	}
-	listen_fd = sockfd; // NEW: save listening socket in global variable for broadcast filtering
-
 	bzero(&servaddr, sizeof(servaddr));
 
 	// assign IP, PORT
@@ -165,6 +163,7 @@ int main(int argc, char **argv) { // MODIFIED: added argc & argv parameters
 	FD_ZERO(&active_fds); // NEW: clear master file descriptor set
 	FD_SET(sockfd, &active_fds); // NEW: add listening socket to master fd set
 	max_fd = sockfd; // NEW: set initial highest fd to listening socket
+	listen_fd = sockfd; // NEW: save listening socket in global variable for broadcast filtering
 
 	while (1) { // NEW: multi-client non-blocking event loop replacing single accept
 		read_fds = write_fds = active_fds; // NEW: copy master fd set to read and write sets for select()
